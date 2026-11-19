@@ -190,6 +190,13 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
 .lock small{color:var(--muted);font-size:13px;line-height:1.4;display:block}
 .lock .cta{color:var(--green);font-size:13px;font-weight:700;margin-top:4px;display:block}
 .demo-badge{display:inline-block;background:var(--tag);color:var(--tag-ink);font-size:12px;font-weight:700;border-radius:999px;padding:3px 10px;margin-top:6px}
+.donut{display:flex;align-items:center;gap:14px}
+.donut svg{width:128px;height:128px;flex:none}
+.donut .dleg{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.25}
+.donut .dleg div{display:flex;gap:8px;align-items:flex-start}
+.donut .dleg i{width:11px;height:11px;border-radius:3px;flex:none;margin-top:3px}
+.donut .dleg b{display:block;color:var(--ink)}
+.donut .dleg span{color:var(--muted)}
 .buybar{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);padding:10px 16px calc(12px + env(safe-area-inset-bottom,0px))}
 .buybar .in{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:4px;text-align:center}
 .buybar small{color:var(--muted);font-size:12px}
@@ -290,8 +297,12 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     h+='<div class="tag"><span class="l">Preço de venda sugerido</span><span class="v">'+fmt(r.P)+'</span><span class="s">Margem '+pct(m)+' · multiplica o custo por '+dec(1/(1-m))+'</span></div>';
     if(r.min>0) h+='<div class="minline"><span>Preço mínimo sem prejuízo</span><b>'+fmt(Math.ceil(r.min*100)/100)+'</b></div>';
     var parts=[['Custo do produto',c,'--c-custo'],['Imposto',r.vImp,'--c-imp'],['Cartão e Pix',r.vTx,'--c-tx'],['Furtos e perdas',r.vPer,'--c-perda'],['Sobra antes das despesas',r.vL,'--c-lucro']];
-    h+='<div class="bar">'+parts.map(function(x){ return '<div style="width:'+(Math.max(x[1],0)/r.P*100).toFixed(1)+'%;background:var('+x[2]+')"></div>'; }).join('')+'</div>'+
-      '<div class="leg">'+parts.map(function(x){ return '<i style="background:var('+x[2]+')"></i><span>'+x[0]+'</span><b>'+fmt(x[1])+'</b>'; }).join('')+'</div>';
+    var off=25, segs='';
+    parts.forEach(function(x){ var q=Math.max(x[1],0)/r.P*100; if(q<=0.05) return; segs+='<circle cx="21" cy="21" r="15.915" fill="none" style="stroke:var('+x[2]+')" stroke-width="6.5" stroke-dasharray="'+q.toFixed(2)+' '+(100-q).toFixed(2)+'" stroke-dashoffset="'+off.toFixed(2)+'"/>'; off-=q; });
+    h+='<span class="lbl" style="margin:4px 0 0">Para onde vai cada venda</span><div class="donut"><svg viewBox="0 0 42 42" role="img" aria-label="Para onde vai cada venda"><circle cx="21" cy="21" r="15.915" fill="none" style="stroke:var(--line2)" stroke-width="6.5"/>'+segs+
+      '<text x="21" y="22" text-anchor="middle" style="font-family:var(--num);font-size:7.2px;font-weight:700;fill:var(--c-lucro)">'+pct(r.vL/r.P)+'</text><text x="21" y="27.6" text-anchor="middle" style="font-family:Inter,sans-serif;font-size:3.6px;font-weight:600;fill:var(--muted)">sobra</text></svg>'+
+      '<div class="dleg">'+parts.map(function(x){ return '<div><i style="background:var('+x[2]+')"></i><span>'+x[0]+'<b>'+fmt(x[1])+' · '+pct(x[1]/r.P)+'</b></span></div>'; }).join('')+'</div></div>'+
+      '<p class="hint">Na versão completa, o gráfico inclui suas despesas fixas e mostra o lucro líquido de verdade.</p>';
     box.innerHTML=h;
   }
   function conta(){

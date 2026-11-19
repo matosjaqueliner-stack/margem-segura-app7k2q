@@ -118,6 +118,13 @@ button,.btn{font:inherit;font-weight:700;border:0;border-radius:14px;min-height:
 .kpi.red{background:var(--red-soft);border-color:transparent}
 .kpi.red b{color:var(--red)}.kpi.red span{color:var(--red-text)}
 .bar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--line2)}
+.donut{display:flex;align-items:center;gap:14px}
+.donut svg{width:128px;height:128px;flex:none;transform:rotate(0deg)}
+.donut .dleg{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.25}
+.donut .dleg div{display:flex;gap:8px;align-items:flex-start}
+.donut .dleg i{width:11px;height:11px;border-radius:3px;flex:none;margin-top:3px}
+.donut .dleg b{display:block;font-variant-numeric:tabular-nums}
+.donut .dleg span{color:var(--muted)}
 .bar div{height:100%}
 .leg{display:grid;grid-template-columns:auto 1fr auto;gap:6px 8px;align-items:center;font-size:14px;font-variant-numeric:tabular-nums}
 .leg i{width:12px;height:12px;border-radius:3px;display:block}
@@ -199,7 +206,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     nome: 'Margem Segura',
     empresa: 'Criado por Jaqueline Matos',                 // ex.: 'Sua Empresa Ltda'
     whatsappSuporte: '5511947185525',         // só números com DDI e DDD, ex.: '5511999999999'
-    versao: '2.6.1'
+    versao: '2.6.2'
   };
   var XLSX_URL='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
   var PDFJS_URL='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
@@ -362,6 +369,21 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     return {n:n,red:red,amb:amb,att:red+amb,sc:sc,mm:(n-sc)?sm/(n-sc):0};
   }
   function catAvg(){ var t=0; S.cats.forEach(function(c){ t+=num(c.m); }); return S.cats.length?t/S.cats.length/100:0.35; }
+  function rosca(parts,U,centro,sub,cor){
+    var soma=0; parts.forEach(function(x){ soma+=Math.max(x[1],0); }); if(!(soma>0)) soma=1;
+    var off=25, segs='';
+    parts.forEach(function(x){
+      var q=Math.max(x[1],0)/soma*100; if(q<=0.05) return;
+      segs+='<circle cx="21" cy="21" r="15.915" fill="none" style="stroke:var('+x[2]+')" stroke-width="6.5" stroke-dasharray="'+q.toFixed(2)+' '+(100-q).toFixed(2)+'" stroke-dashoffset="'+off.toFixed(2)+'"/>';
+      off-=q;
+    });
+    var desc=parts.map(function(x){ return x[0]+' '+pct(x[1]/U); }).join(', ');
+    return '<div class="donut"><svg viewBox="0 0 42 42" role="img" aria-label="Para onde vai cada venda: '+esc(desc)+'">'+
+      '<circle cx="21" cy="21" r="15.915" fill="none" style="stroke:var(--line2)" stroke-width="6.5"/>'+segs+
+      '<text x="21" y="22" text-anchor="middle" style="font-family:var(--num);font-size:7.2px;font-weight:700;fill:'+(cor||'var(--ink)')+'">'+esc(centro)+'</text>'+
+      '<text x="21" y="27.6" text-anchor="middle" style="font-family:Inter,sans-serif;font-size:3.6px;font-weight:600;fill:var(--muted)">'+esc(sub)+'</text></svg>'+
+      '<div class="dleg">'+parts.map(function(x){ return '<div><i style="background:var('+x[2]+')"></i><span>'+esc(x[0])+'<b style="color:'+(x[1]<0?'var(--red)':'var(--ink)')+'">'+fmt(x[1])+' · '+pct(x[1]/U)+'</b></span></div>'; }).join('')+'</div></div>';
+  }
   /* ===== navegação ===== */
   function go(tab){ V.tab=tab; V.screen=null; V.edit=null; render(); window.scrollTo(0,0); }
   function openProd(id,preset){
@@ -564,6 +586,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div><span class="lbl" style="margin:0">Margem deste produto</span><span class="hint" id="mnota"></span></div>'+
       '<div class="stepper"><button type="button" id="mmenos" aria-label="Diminuir margem">−</button><b id="mval"></b><button type="button" id="mmais" aria-label="Aumentar margem">+</button></div></div>'+
       '<div id="pres"></div>'+
+      '<div id="pbarw"><span class="lbl">Para onde vai cada venda</span><div id="pbar"></div></div>'+
       '<div><label for="fa">Preço que você pratica hoje (prateleira)</label><div class="pre"><span>R$</span><input id="fa" inputmode="decimal" value="'+esc(p.atual)+'" placeholder="Vazio = usar o sugerido" autocomplete="off"></div>'+
       '<p class="hint" style="margin-top:6px">É o preço que o cliente paga hoje, não o que você pagou ao fornecedor.</p></div>'+
       '<div id="ppra"></div>'+
@@ -571,8 +594,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       '<div id="pcmp"></div>'+
       '<div><label for="ft">Preço máximo que o cliente aceita pagar (opcional)</label><div class="pre"><span>R$</span><input id="ft" inputmode="decimal" value="'+esc(p.teto)+'" placeholder="0,00" autocomplete="off"></div>'+
       '<p class="hint" style="margin-top:6px">Acima desse valor o produto encalha. Serve para a calculadora avisar, na hora da compra, quando o repasse fica caro.</p></div>'+
-      '<div id="ptet"></div>'+
-      '<details id="pdet"><summary>Para onde vai cada venda</summary><div id="pbar" class="stack" style="gap:8px"></div></details></section>';
+      '<div id="ptet"></div></section>';
     h+='<p class="hint" style="padding:0 4px">Usando: imposto '+esc(S.cfg.imp)+'% · cartão e Pix '+esc(S.cfg.taxa)+'% · perdas '+esc(S.cfg.perd)+'%'+(despPct()>0?' · despesas fixas '+pct(despPct())+' das vendas':'')+'. Ajuste em “Meu negócio”.</p>';
     h+='</div>';
     h+='<div class="actionbar"><div class="in"><div id="ptoast"></div><button type="button" class="btn xl" id="salvarP">Salvar produto</button></div></div>';
@@ -624,11 +646,11 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       parts.push(['Furtos e perdas',r.vPer,'--c-perda']);
       if(r.temDesp) parts.push(['Despesas fixas',r.vDesp,'--c-desp']);
       parts.push([r.temDesp?'Lucro líquido':'Sobra antes das despesas',r.vL,'--c-lucro']);
-      var U=r.usado||1;
-      $('pbar').innerHTML='<div class="bar">'+parts.map(function(x){ return '<div style="width:'+(Math.max(x[1],0)/U*100).toFixed(1)+'%;background:var('+x[2]+')"></div>'; }).join('')+'</div>'+
-        '<div class="leg">'+parts.map(function(x){ return '<i style="background:var('+x[2]+')"></i><span>'+x[0]+'</span><b>'+fmt(x[1])+' · '+pct(x[1]/U)+'</b>'; }).join('')+'</div>'+
-        (r.temDesp?'':'<p class="hint">Preencha despesas e vendas em “Meu negócio” para ver o lucro líquido.</p>');
-    } else $('pbar').innerHTML='<p class="hint">Digite o custo para ver a conta.</p>';
+      var U=r.usado||1, neg=r.vL<0;
+      $('pbar').innerHTML=rosca(parts,U,pct(r.vL/U),neg?'prejuízo':(r.temDesp?'de lucro':'sobra'),neg?'var(--red)':'var(--c-lucro)')+
+        (r.temDesp?'':'<p class="hint" style="margin-top:8px">Preencha despesas e vendas em “Meu negócio” para ver o lucro líquido.</p>');
+      $('pbarw').classList.remove('hidden');
+    } else { $('pbar').innerHTML=''; $('pbarw').classList.add('hidden'); }
   }
 
   /* ----- importar ----- */
@@ -1019,9 +1041,9 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       '<div class="grid2">'+
         fld('desp','Despesas fixas por mês','R$','')+fld('vend','Vendas por mês','R$','')+
         fld('imp','Imposto (Simples)','','%')+fld('taxa','Cartão e Pix','','%')+
-        fld('perd','Furtos e perdas','','%')+
+        fld('perd','Furtos e perdas','','%')+fld('mmed','Margem média','','%')+
       '</div>'+
-      '<p class="hint" id="despinfo"></p>'+
+      '<p class="hint" id="despinfo"></p><div id="sobra"></div>'+
       '<div><label for="narred">Arredondar o preço</label><select id="narred">'+
         [['90','Terminar em ,90'],['99','Terminar em ,99'],['05','De 5 em 5 centavos'],['0','Sem arredondar']].map(function(o){ return '<option value="'+o[0]+'"'+(S.cfg.arred===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')+
       '</select></div>'+
@@ -1048,8 +1070,17 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
   }
   function updMeta(){
     var el=$('despinfo'); if(!el) return;
-    var dp=despPct();
-    el.textContent = dp>0 ? 'Suas despesas fixas pesam '+pct(dp)+' das vendas. Esse percentual já entra no preço mínimo de cada produto.' : 'Preencha despesas fixas e vendas por mês para o preço mínimo considerar aluguel, energia e royalties.';
+    var st=stats(), auto=st.n?st.mm:catAvg(), mm=num(S.cfg.mmed)>0?num(S.cfg.mmed)/100:auto;
+    var imp=cfgN('imp')/100, tx=cfgN('taxa')/100, q=Math.min(cfgN('perd')/100,0.5), dp=despPct();
+    var sobra=(mm-imp-tx-q*(1-mm)/(1-q)-dp)*100, h='';
+    h+='Margem média: se ficar vazio, usamos a média dos seus produtos ('+pct(auto)+').';
+    if(dp>0) h+=' Suas despesas fixas pesam '+pct(dp)+' das vendas e já entram no preço mínimo de cada produto.';
+    el.innerHTML=h;
+    var box=$('sobra'); if(!box) return;
+    if(!(dp>0)){ box.innerHTML='<div class="msg info">Preencha despesas fixas e vendas por mês para ver quanto sobra de lucro e para o preço mínimo considerar aluguel, energia e royalties.</div>'; return; }
+    box.innerHTML = sobra>0 ?
+      '<div class="msg green">Com margem média de <b>'+pct(mm)+'</b>, de cada <b>R$ 100</b> vendidos sobram <b>'+fmt(sobra)+'</b> de lucro, depois de imposto, cartão, perdas e despesas fixas.</div>' :
+      '<div class="msg red">Com margem média de <b>'+pct(mm)+'</b>, imposto, cartão, perdas e despesas fixas consomem toda a margem: de cada R$ 100 vendidos, faltam <b>'+fmt(-sobra)+'</b>. Suba as margens ou reduza despesas.</div>';
   }
   function renderCats(){
     var box=$('cats'); if(!box) return;
