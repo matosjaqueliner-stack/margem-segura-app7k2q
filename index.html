@@ -199,7 +199,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     nome: 'Margem Segura',
     empresa: 'Criado por Jaqueline Matos',                 // ex.: 'Sua Empresa Ltda'
     whatsappSuporte: '5511947185525',         // só números com DDI e DDD, ex.: '5511999999999'
-    versao: '2.5.3'
+    versao: '2.6.0'
   };
   var XLSX_URL='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
   var PDFJS_URL='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
@@ -261,7 +261,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
 
   /* ===== estado ===== */
   var KEY='calc-precos-produto-v2', KEY_OLD='calc-precos-produto-v1';
-  var S, V={tab:'inicio',screen:null,edit:null,imp:null,wiz:1,wpub:'B',filtro:'Todos',busca:'',hb:'',qc:{cat:null,custo:''}};
+  var S, V={tab:'inicio',screen:null,edit:null,imp:null,wiz:1,wpub:'B',filtro:'Todos',busca:'',hb:'',qc:{cat:null,custo:''},vc:{busca:'',id:null,custo:''}};
   function novasCats(pub){
     var aj=PUB[pub||'B'].aj;
     return BASE.map(function(b,i){ return {id:'c'+i,n:b[0],m:Math.max(10,b[1]+aj)}; });
@@ -317,6 +317,45 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     return r;
   }
   function calcProd(p){ return calc(num(p.custo),margemDe(p.cat,p.aj),num(p.atual)); }
+  /* ----- histórico de custo e "vale a pena comprar?" ----- */
+  function histDe(p){ return (p&&p.hist)||[]; }
+  function prodById(id){ for(var i=0;i<S.prods.length;i++) if(S.prods[i].id===id) return S.prods[i]; return null; }
+  function dataCurta(ts){ return ts>1e11?new Date(ts).toLocaleDateString('pt-BR'):''; }
+  function registraCusto(p,novo){
+    var c=num(p.custo), mudou=Math.abs(novo-c)>0.004;
+    if(mudou && c>0) p.hist=histDe(p).concat([{c:c,ts:p.cts||p.ts||Date.now()}]).slice(-12);
+    if(novo>0 && (mudou||!p.cts)) p.cts=Date.now();
+    p.custo=novo;
+  }
+  function varCusto(p){
+    var h=histDe(p), u=h.length?h[h.length-1]:null, c=num(p.custo);
+    if(!u||!(u.c>0)||!(c>0)) return null;
+    return {ant:u.c,ts:u.ts,v:c/u.c-1};
+  }
+  function veredito(p,c){
+    var m=margemDe(p.cat,p.aj), r=calc(c,m,0), at=num(p.atual), teto=num(p.teto), mk=num(p.mkt);
+    var lim=teto>0?teto:mk, limNome=teto>0?'do máximo que seu cliente aceita':'do preço do mercado grande';
+    var min=r.min>0?Math.ceil(r.min*100)/100:0, o={r:r,m:m,min:min,lim:lim,linhas:[]};
+    if(lim>0 && min>0 && min>lim+0.004){
+      o.cls='red'; o.tit='Não compensa comprar por esse preço';
+      o.txt='Mesmo sem lucro, você precisaria vender por '+fmt(min)+', acima '+limNome+' ('+fmt(lim)+'). Procure outro fornecedor ou negocie.';
+    } else if(lim>0 && r.P>lim+0.004){
+      var rl=calc(c,m,lim);
+      o.cls='amber'; o.tit='Repasse apertado';
+      o.txt='O preço sugerido ('+fmt(r.P)+') passa '+limNome+' ('+fmt(lim)+'). Vendendo a '+fmt(lim)+', a margem cai para '+pct(rl.margem)+(rl.temDesp?' e o lucro fica em '+fmt(rl.vL)+' por unidade':'')+'. Compre menos ou busque um preço melhor.';
+    } else {
+      o.cls='green'; o.tit='Pode comprar';
+      o.txt='Dá para vender por '+fmt(r.P)+' com margem de '+pct(m)+(lim>0?', dentro '+limNome+' ('+fmt(lim)+')':'')+'.';
+    }
+    if(at>0){
+      if(min>0 && at<min-0.004) o.linhas.push(['red','Com esse custo, o preço que você cobra hoje ('+fmt(at)+') dá prejuízo. Reajuste para '+fmt(r.P)+'.']);
+      else if(at<r.P-0.004) o.linhas.push(['amber','Hoje você cobra '+fmt(at)+'. Com esse custo, o ideal é '+fmt(r.P)+'.']);
+    }
+    var cAnt=num(p.custo);
+    if(cAnt>0 && Math.abs(c-cAnt)>0.004){ var v=c/cAnt-1; o.linhas.push([v>0?'amber':'green','Na última compra você pagou '+fmt(cAnt)+(p.cts?' ('+dataCurta(p.cts)+')':'')+': '+(v>0?'subiu ':'caiu ')+pct(Math.abs(v))+'.']); }
+    if(!(lim>0)) o.linhas.push(['info','Cadastre no produto o preço máximo que o cliente aceita pagar para saber se o repasse vai ficar caro.']);
+    return o;
+  }
   function stats(){
     var n=S.prods.length, red=0, amb=0, sm=0, sc=0;
     S.prods.forEach(function(p){ var r=calcProd(p); if(r.st==='none'){ sc++; return; } if(r.st==='red') red++; if(r.st==='amber') amb++; sm+=r.margem; });
@@ -337,8 +376,8 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
   function go(tab){ V.tab=tab; V.screen=null; V.edit=null; render(); window.scrollTo(0,0); }
   function openProd(id,preset){
     var p = id ? JSON.parse(JSON.stringify(S.prods.filter(function(x){return x.id===id;})[0]||null)) : null;
-    if(!p){ p={id:null,n:'',cat:(preset&&preset.cat)||S.cats[0].id,custo:(preset&&preset.custo)||'',aj:0,ean:(preset&&preset.ean)||'',atual:'',mkt:''}; }
-    else { p.custo=num(p.custo)>0?dec(p.custo):''; p.atual=p.atual?dec(p.atual):''; p.mkt=p.mkt?dec(p.mkt):''; }
+    if(!p){ p={id:null,n:'',cat:(preset&&preset.cat)||S.cats[0].id,custo:(preset&&preset.custo)||'',aj:0,ean:(preset&&preset.ean)||'',atual:'',mkt:'',teto:''}; }
+    else { p.custo=num(p.custo)>0?dec(p.custo):''; p.atual=p.atual?dec(p.atual):''; p.mkt=p.mkt?dec(p.mkt):''; p.teto=num(p.teto)>0?dec(p.teto):''; }
     V.screen='prod'; V.edit=p; V.saved=false; V.confDel=false; render(); window.scrollTo(0,0);
   }
 
@@ -357,7 +396,8 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
         '<span class="p"><b style="color:var(--muted)">—</b><small>completar</small></span></button>';
     }
     var st = r.st==='red'?'<span class="st red">● Abaixo do preço mínimo</span>':(r.st==='amber'?'<span class="st amber">● Revisar arredondamento</span>':'');
-    return '<button type="button" class="row" data-prod="'+esc(p.id)+'"><span class="t"><b>'+esc(p.n)+'</b><small>'+esc(c.n.split(' (')[0])+' · custo '+fmt(num(p.custo))+'</small>'+st+'</span>'+
+    var vc=varCusto(p), vtx=(vc&&Math.abs(vc.v)>=0.005)?' ('+(vc.v>0?'▲ ':'▼ ')+pct(Math.abs(vc.v))+')':'';
+    return '<button type="button" class="row" data-prod="'+esc(p.id)+'"><span class="t"><b>'+esc(p.n)+'</b><small>'+esc(c.n.split(' (')[0])+' · custo '+fmt(num(p.custo))+vtx+'</small>'+st+'</span>'+
       '<span class="p"><b>'+fmt(r.usado)+'</b><small>'+(num(p.atual)>0?'praticado · sug. '+fmt(r.P):'sugerido · margem '+pct(r.margem))+'</small></span></button>';
   }
 
@@ -369,6 +409,8 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     h+='<div class="stack" style="gap:10px">'+
       '<button type="button" class="btn xl" data-tab="importar">'+ico('up')+'Enviar tabela de produtos</button>'+
       '<div class="grid2"><button type="button" class="btn ghost" id="novo">'+ico('plus')+'Novo produto</button><button type="button" class="btn ghost" data-tab="produtos">'+ico('list')+'Ver produtos</button></div></div>';
+    // vale a pena comprar?
+    h+='<section class="card" id="vccard"><h2>Vale a pena comprar?</h2><p class="hint">No atacadista: escolha o produto e digite o preço da prateleira. A calculadora diz se o repasse fica caro.</p><div id="vcbox"></div></section>';
     // consultar preço
     h+='<section class="card"><h2>Consultar preço</h2>'+
       '<div class="search">'+ico('search')+'<input type="search" id="hbusca" placeholder="Nome ou código de barras" aria-label="Consultar preço de produto cadastrado" value="'+esc(V.hb)+'" autocomplete="off">'+
@@ -408,6 +450,46 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     if(!q){ box.innerHTML='<p class="hint">Digite para ver o preço de um dos seus '+S.prods.length+' produtos.</p>'; return; }
     var res=S.prods.filter(function(p){ return norm(p.n).indexOf(q)>=0 || (p.ean&&String(p.ean).indexOf(V.hb.trim())>=0); }).slice(0,6);
     box.innerHTML = res.length ? '<div class="list">'+res.map(prodRow).join('')+'</div>' : '<p class="hint">Nada encontrado para “'+esc(V.hb)+'”.</p>';
+  }
+  function updVc(){
+    var box=$('vcbox'); if(!box) return;
+    if(!S.prods.length){ box.innerHTML='<p class="hint">Cadastre seus produtos para usar. Funciona melhor com o preço máximo que o cliente aceita preenchido em cada produto.</p>'; return; }
+    var p=V.vc.id?prodById(V.vc.id):null;
+    if(!p){
+      V.vc.id=null;
+      box.innerHTML='<div class="search">'+ico('search')+'<input type="search" id="vcbusca" placeholder="Qual produto você está comprando?" aria-label="Produto que você está comprando" value="'+esc(V.vc.busca)+'" autocomplete="off">'+
+        '<label class="cambtn" title="Escolher pela foto do código de barras">'+ico('cam')+'<input type="file" id="vcFoto" accept="image/*" capture="environment" aria-label="Escolher pela foto do código de barras"></label></div>'+
+        '<div id="vcfotomsg"></div><div id="vclist"></div>';
+      updVcList(); return;
+    }
+    var c=catById(p.cat), lim=num(p.teto);
+    box.innerHTML='<div class="minline" style="align-items:flex-start"><span style="flex:1;min-width:0"><b style="font-family:inherit;font-size:15px;color:var(--ink);display:block">'+esc(p.n)+'</b>'+
+        esc(c.n.split(' (')[0])+(num(p.custo)>0?' · última compra '+fmt(num(p.custo)):'')+(lim>0?' · cliente aceita até '+fmt(lim):'')+'</span>'+
+        '<button type="button" class="btn plain" id="vcTroca" style="min-height:36px">Trocar</button></div>'+
+      '<div class="big"><label for="vccusto">Preço no atacadista (custo da unidade)</label><div class="pre"><span>R$</span><input id="vccusto" inputmode="decimal" placeholder="0,00" value="'+esc(V.vc.custo)+'" autocomplete="off"></div></div>'+
+      '<div id="vcres" class="stack" style="gap:10px"></div>';
+    updVcRes();
+  }
+  function updVcList(){
+    var box=$('vclist'); if(!box) return;
+    var q=norm(V.vc.busca);
+    if(!q){ box.innerHTML=''; return; }
+    var res=S.prods.filter(function(p){ return norm(p.n).indexOf(q)>=0 || (p.ean&&String(p.ean).indexOf(V.vc.busca.trim())>=0); }).slice(0,6);
+    box.innerHTML = res.length ? '<div class="list">'+res.map(function(p){
+      return '<button type="button" class="row" data-vcp="'+esc(p.id)+'"><span class="t"><b>'+esc(p.n)+'</b><small>'+(num(p.custo)>0?'última compra '+fmt(num(p.custo)):'sem custo cadastrado')+(num(p.teto)>0?' · aceita até '+fmt(num(p.teto)):'')+'</small></span>'+ico('chev')+'</button>';
+    }).join('')+'</div>' : '<p class="hint">Nada encontrado para “'+esc(V.vc.busca)+'”. Para um produto novo, use “Calcular agora”.</p>';
+  }
+  function updVcRes(){
+    var box=$('vcres'); if(!box) return;
+    var p=prodById(V.vc.id); if(!p){ box.innerHTML=''; return; }
+    var c=num(V.vc.custo);
+    if(!(c>0)){ box.innerHTML='<p class="hint">Digite o preço que está vendo na prateleira do atacadista.</p>'; return; }
+    var o=veredito(p,c), h='';
+    h+='<div class="msg '+o.cls+'" role="status"><b style="font-size:16px">'+esc(o.tit)+'</b><br>'+o.txt+'</div>';
+    h+='<div class="tag sm"><span class="l">Vender por</span><span class="v">'+fmt(o.r.P)+'</span><span class="s">Margem '+pct(o.m)+(o.min>0?' · mínimo sem prejuízo '+fmt(o.min):'')+'</span></div>';
+    o.linhas.forEach(function(l){ h+='<div class="msg '+l[0]+'">'+l[1]+'</div>'; });
+    h+='<button type="button" class="btn" id="vcReg">'+ico('check')+'Comprei: atualizar o custo para '+fmt(c)+'</button>';
+    box.innerHTML=h;
   }
   function updQuick(){
     var box=$('qres'); if(!box) return;
@@ -494,6 +576,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       '<div id="eanmsg"></div></section>';
     h+='<section class="card"><div class="eyebrow">Preço</div>'+
       '<div class="big"><label for="fk">Quanto você pagou (custo da unidade)</label><div class="pre"><span>R$</span><input id="fk" inputmode="decimal" value="'+esc(p.custo)+'" placeholder="0,00" autocomplete="off"></div></div>'+
+      '<div id="phist"></div>'+
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div><span class="lbl" style="margin:0">Margem deste produto</span><span class="hint" id="mnota"></span></div>'+
       '<div class="stepper"><button type="button" id="mmenos" aria-label="Diminuir margem">−</button><b id="mval"></b><button type="button" id="mmais" aria-label="Aumentar margem">+</button></div></div>'+
       '<div id="pres"></div>'+
@@ -502,6 +585,9 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       '<div id="ppra"></div>'+
       '<div><label for="fm">Preço no mercado grande (opcional)</label><div class="pre"><span>R$</span><input id="fm" inputmode="decimal" value="'+esc(p.mkt)+'" placeholder="0,00" autocomplete="off"></div></div>'+
       '<div id="pcmp"></div>'+
+      '<div><label for="ft">Preço máximo que o cliente aceita pagar (opcional)</label><div class="pre"><span>R$</span><input id="ft" inputmode="decimal" value="'+esc(p.teto)+'" placeholder="0,00" autocomplete="off"></div>'+
+      '<p class="hint" style="margin-top:6px">Acima desse valor o produto encalha. Serve para a calculadora avisar, na hora da compra, quando o repasse fica caro.</p></div>'+
+      '<div id="ptet"></div>'+
       '<details id="pdet"><summary>Para onde vai cada venda</summary><div id="pbar" class="stack" style="gap:8px"></div></details></section>';
     h+='<p class="hint" style="padding:0 4px">Usando: imposto '+esc(S.cfg.imp)+'% · cartão e Pix '+esc(S.cfg.taxa)+'% · perdas '+esc(S.cfg.perd)+'%'+(despPct()>0?' · despesas fixas '+pct(despPct())+' das vendas':'')+'. Ajuste em “Meu negócio”.</p>';
     h+='</div>';
@@ -537,6 +623,17 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       cmp = d>5 ? '<div class="msg amber">'+Math.round(d)+'% acima do mercado grande. O cliente pode achar caro.</div>' :
         (d>=-5?'<div class="msg green">Praticamente igual ao mercado grande.</div>':'<div class="msg green">'+Math.round(-d)+'% abaixo do mercado grande. Há espaço para subir.</div>'); }
     $('pcmp').innerHTML=cmp;
+    var orig=p.id?prodById(p.id):null, hh='';
+    if(orig){
+      var cs=num(orig.custo);
+      if(cs>0 && c>0 && Math.abs(c-cs)>0.004){ var vv=c/cs-1; hh='<div class="msg '+(vv>0?'amber':'green')+'">Custo anterior: '+fmt(cs)+(orig.cts?' em '+dataCurta(orig.cts):'')+'. '+(vv>0?'Subiu ':'Caiu ')+pct(Math.abs(vv))+'. Ao salvar, o anterior fica no histórico.</div>'; }
+      var hs=histDe(orig).slice(-4).reverse();
+      if(hs.length) hh+='<p class="hint">Compras anteriores: '+hs.map(function(x){ var dd=dataCurta(x.ts); return fmt(x.c)+(dd?' ('+dd+')':''); }).join(' · ')+'</p>';
+    }
+    $('phist').innerHTML=hh;
+    var tt='';
+    if(c>0 && num(p.teto)>0){ var ov=veredito({cat:p.cat,aj:p.aj,atual:0,teto:p.teto,mkt:0,custo:c},c); tt='<div class="msg '+ov.cls+'"><b>'+esc(ov.tit)+'.</b> '+ov.txt+'</div>'; }
+    $('ptet').innerHTML=tt;
     if(c>0){
       var parts=[['Custo do produto',c,'--c-custo'],['Imposto',r.vImp,'--c-imp']];
       if(r.vTx>0) parts.push(['Cartão e Pix',r.vTx,'--c-tx']);
@@ -906,9 +1003,9 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       var cat=x.cn?catMatch(x.cn):null; var cid=cat?cat.id:I.defCat;
       var d=findDup(x.n,x.ean);
       if(d){ if(!I.atualizar) return;
-        if(lote.novos.indexOf(d.id)<0 && !lote.atualizados.some(function(a){return a.id===d.id;})) lote.atualizados.push({id:d.id,antes:{custo:d.custo,atual:d.atual,ean:d.ean,cat:d.cat}});
-        if(x.custo>0) d.custo=x.custo; if(x.atual>0) d.atual=x.atual; if(x.ean) d.ean=x.ean; if(x.cn) d.cat=cid; d.ts=Date.now(); at++; ids.push(d.id); }
-      else { var p={id:uid(),n:x.n,cat:cid,custo:x.custo,aj:0,ean:x.ean,atual:x.atual||0,mkt:0,ts:Date.now()}; S.prods.push(p); lote.novos.push(p.id); novos++; ids.push(p.id); }
+        if(lote.novos.indexOf(d.id)<0 && !lote.atualizados.some(function(a){return a.id===d.id;})) lote.atualizados.push({id:d.id,antes:{custo:d.custo,atual:d.atual,ean:d.ean,cat:d.cat,hist:histDe(d).slice(),cts:d.cts||0}});
+        if(x.custo>0) registraCusto(d,x.custo); if(x.atual>0) d.atual=x.atual; if(x.ean) d.ean=x.ean; if(x.cn) d.cat=cid; d.ts=Date.now(); at++; ids.push(d.id); }
+      else { var p={id:uid(),n:x.n,cat:cid,custo:x.custo,aj:0,ean:x.ean,atual:x.atual||0,mkt:0,teto:0,hist:[],cts:x.custo>0?Date.now():0,ts:Date.now()}; S.prods.push(p); lote.novos.push(p.id); novos++; ids.push(p.id); }
     });
     S.imports=(S.imports||[]); S.imports.unshift(lote); S.imports=S.imports.slice(0,10); I.lote=lote.id;
     var red=0, sc=0; ids.forEach(function(id){ var p=S.prods.filter(function(z){return z.id===id;})[0]; if(!p) return; var st=calcProd(p).st; if(st==='red') red++; if(st==='none') sc++; });
@@ -921,7 +1018,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     var antes=S.prods.length;
     S.prods=S.prods.filter(function(p){ return !rm[p.id]; });
     var removidos=antes-S.prods.length, rest=0;
-    L.atualizados.forEach(function(a){ var p=S.prods.filter(function(z){ return z.id===a.id; })[0]; if(p){ p.custo=a.antes.custo; p.atual=a.antes.atual; p.ean=a.antes.ean; p.cat=a.antes.cat; rest++; } });
+    L.atualizados.forEach(function(a){ var p=S.prods.filter(function(z){ return z.id===a.id; })[0]; if(p){ p.custo=a.antes.custo; p.atual=a.antes.atual; p.ean=a.antes.ean; p.cat=a.antes.cat; if(a.antes.hist) p.hist=a.antes.hist; if(a.antes.cts!=null) p.cts=a.antes.cts; rest++; } });
     L.cats.forEach(function(cid){ if(!S.prods.some(function(p){ return p.cat===cid; })) S.cats=S.cats.filter(function(c){ return c.id!==cid; }); });
     S.imports=S.imports.filter(function(x){ return x.id!==id; });
     save();
@@ -1049,7 +1146,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     var body = V.tab==='produtos'?vProdutos():(V.tab==='importar'?vImportar():(V.tab==='negocio'?vNegocio():vInicio()));
     var hasAction = (V.tab==='importar' && V.imp && (V.imp.step===2||V.imp.step===3)) || (V.tab==='produtos' && !!V.sel && S.prods.length>0);
     root.innerHTML='<main'+(hasAction?' class="screen"':'')+'>'+body+'</main>'+(hasAction?'':tabbar());
-    if(V.tab==='inicio'){ updHome(); updQuick(); }
+    if(V.tab==='inicio'){ updVc(); updHome(); updQuick(); }
     if(V.tab==='produtos') updLista();
     if(V.tab==='negocio'){ updMeta(); renderCats(); }
     if(V.tab==='importar' && V.imp && V.imp.step===2) updPrev();
@@ -1085,6 +1182,16 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     var d=t.dataset;
     if(d.tab){ V.undoMsg=''; if(V.qc) V.qc.salvo=null; V.sel=null; if(d.tab==='importar'&&V.imp&&V.imp.step===4) V.imp={step:1}; go(d.tab); return; }
     if(d.prod){ openProd(d.prod); return; }
+    if(d.vcp){ V.vc.id=d.vcp; V.vc.custo=''; updVc(); var vi=$('vccusto'); if(vi) vi.focus(); return; }
+    if(t.id==='vcTroca'){ V.vc.id=null; V.vc.custo=''; updVc(); var vb=$('vcbusca'); if(vb) vb.focus(); return; }
+    if(t.id==='vcReg'){
+      var vp=prodById(V.vc.id), vcc=num(V.vc.custo); if(!vp||!(vcc>0)) return;
+      registraCusto(vp,vcc); vp.ts=Date.now(); save();
+      var vr=calcProd(vp);
+      V.vc={busca:'',id:null,custo:''}; render();
+      toast('Custo atualizado: '+vp.n+(vr.st==='red'?' — reajuste o preço de venda':' · vender por '+fmt(vr.usado)));
+      return;
+    }
     if(d.f){ V.filtro=d.f; render(); return; }
     if(t.id==='novo'){ openProd(null); return; }
     if(t.id==='dica'){ S.dica=false; save(); render(); return; }
@@ -1096,7 +1203,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       if(!qn){ $('qmsg').innerHTML='<div class="msg red">Dê um nome ao produto para salvar.</div>'; $('qnome').focus(); return; }
       var ja=S.prods.filter(function(x){ return norm(x.n)===norm(qn); })[0];
       if(ja){ $('qmsg').innerHTML='<div class="msg amber">Já existe um produto chamado “'+esc(ja.n)+'”. <button type="button" class="btn plain" data-prod="'+esc(ja.id)+'">Abrir para editar</button></div>'; return; }
-      var np={id:uid(),n:qn,cat:qcat,custo:qc,aj:0,ean:'',atual:0,mkt:0,ts:Date.now()};
+      var np={id:uid(),n:qn,cat:qcat,custo:qc,aj:0,ean:'',atual:0,mkt:0,teto:0,hist:[],cts:qc>0?Date.now():0,ts:Date.now()};
       S.prods.push(np); save();
       var rq=calcProd(np);
       V.qc={cat:qcat,custo:'',nome:'',salvo:{id:np.id,n:np.n,p:rq.usado}};
@@ -1115,7 +1222,9 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     if(t.id==='salvarP'){
       var p=V.edit, c=num(p.custo), n=String(p.n||'').trim();
       if(!n){ $('ptoast').innerHTML='<div class="msg red">Dê um nome ao produto.</div>'; return; }
-      var rec={id:p.id||uid(),n:n,cat:p.cat,custo:c,aj:p.aj||0,ean:String(p.ean||'').trim(),atual:num(p.atual),mkt:num(p.mkt),ts:Date.now()};
+      var old=p.id?prodById(p.id):null;
+      var rec={id:p.id||uid(),n:n,cat:p.cat,custo:old?num(old.custo):0,aj:p.aj||0,ean:String(p.ean||'').trim(),atual:num(p.atual),mkt:num(p.mkt),teto:num(p.teto),hist:old?histDe(old).slice():[],cts:old?(old.cts||0):0,ts:Date.now()};
+      registraCusto(rec,c);
       var i=S.prods.findIndex(function(x){ return x.id===rec.id; });
       if(i>=0) S.prods[i]=rec; else S.prods.push(rec);
       p.id=rec.id; save();
@@ -1137,12 +1246,12 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       var hoje=new Date(), dstr=hoje.getFullYear()+'-'+('0'+(hoje.getMonth()+1)).slice(-2)+'-'+('0'+hoje.getDate()).slice(-2);
       var sit=function(st){ return st==='none'?'Falta o custo':(st==='red'?'Abaixo do mínimo':(st==='amber'?'Revisar arredondamento':'OK')); };
       var r2=function(n){ return Math.round(n*100)/100; };
-      var cab=['Produto','Código de barras','Categoria','Custo','Margem da categoria (%)','Margem usada (%)','Preço sugerido','Preço praticado','Preço em uso','Margem real (%)','Preço mínimo','Lucro líquido por unidade','Situação','Atualizado em'];
+      var cab=['Produto','Código de barras','Categoria','Custo','Custo anterior','Variação do custo (%)','Margem da categoria (%)','Margem usada (%)','Preço sugerido','Preço praticado','Preço em uso','Margem real (%)','Preço mínimo','Lucro líquido por unidade','Preço máximo do cliente','Situação','Atualizado em'];
       var ordenados=S.prods.slice().sort(function(a,b){ return a.n.localeCompare(b.n,'pt-BR'); });
       var linhas=ordenados.map(function(p){
-        var r=calcProd(p), c=num(p.custo), cat=catById(p.cat), tem=c>0;
-        return [p.n,p.ean||'',cat.n.split(' (')[0],tem?r2(c):'',r2(num(cat.m)),r2(margemDe(p.cat,p.aj)*100),tem?r2(r.P):'',num(p.atual)>0?r2(num(p.atual)):'',r.usado>0?r2(r.usado):'',
-          (tem&&r.usado>0)?r2(r.margem*100):'',(tem&&r.min>0)?Math.ceil(r.min*100)/100:'',(tem&&r.usado>0)?r2(r.vL):'',sit(r.st),p.ts?new Date(p.ts).toLocaleDateString('pt-BR'):''];
+        var r=calcProd(p), c=num(p.custo), cat=catById(p.cat), tem=c>0, vc=varCusto(p);
+        return [p.n,p.ean||'',cat.n.split(' (')[0],tem?r2(c):'',vc?r2(vc.ant):'',vc?r2(vc.v*100):'',r2(num(cat.m)),r2(margemDe(p.cat,p.aj)*100),tem?r2(r.P):'',num(p.atual)>0?r2(num(p.atual)):'',r.usado>0?r2(r.usado):'',
+          (tem&&r.usado>0)?r2(r.margem*100):'',(tem&&r.min>0)?Math.ceil(r.min*100)/100:'',(tem&&r.usado>0)?r2(r.vL):'',num(p.teto)>0?r2(num(p.teto)):'',sit(r.st),p.ts?new Date(p.ts).toLocaleDateString('pt-BR'):''];
       });
       var st2=stats();
       var resumo=[['Negócio',S.cfg.neg||''],['Exportado em',hoje.toLocaleDateString('pt-BR')],['Produtos',st2.n],['Abaixo do preço mínimo',st2.red],['Sem custo',st2.sc],['Margem média real (%)',r2(st2.mm*100)],
@@ -1157,7 +1266,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
         if(err){ viaCSV(); return; }
         try{
           var X=window.XLSX, wb=X.utils.book_new(), ws=X.utils.aoa_to_sheet([cab].concat(linhas));
-          ws['!cols']=[{wch:38},{wch:16},{wch:24},{wch:10},{wch:14},{wch:14},{wch:14},{wch:14},{wch:12},{wch:13},{wch:13},{wch:16},{wch:22},{wch:13}];
+          ws['!cols']=[{wch:38},{wch:16},{wch:24},{wch:10},{wch:14},{wch:18},{wch:14},{wch:14},{wch:14},{wch:14},{wch:12},{wch:13},{wch:13},{wch:16},{wch:18},{wch:22},{wch:13}];
           X.utils.book_append_sheet(wb,ws,'Produtos');
           var w2=X.utils.aoa_to_sheet(resumo); w2['!cols']=[{wch:28},{wch:22}]; X.utils.book_append_sheet(wb,w2,'Resumo');
           X.writeFile(wb,'produtos-precos-'+dstr+'.xlsx'); okMsg('produtos-precos-'+dstr+'.xlsx');
@@ -1280,11 +1389,13 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
   root.addEventListener('input',function(e){
     var t=e.target, id=t.id;
     if(id==='hbusca'){ V.hb=t.value; updHome(); return; }
+    if(id==='vcbusca'){ V.vc.busca=t.value; updVcList(); return; }
+    if(id==='vccusto'){ V.vc.custo=t.value; updVcRes(); return; }
     if(id==='qcusto'){ V.qc.custo=t.value; updQuick(); return; }
     if(id==='qnome'){ V.qc.nome=t.value; return; }
     if(id==='pbusca'){ V.busca=t.value; updLista(); return; }
     if(V.screen==='prod'){
-      var map={fn:'n',fe:'ean',fk:'custo',fa:'atual',fm:'mkt'};
+      var map={fn:'n',fe:'ean',fk:'custo',fa:'atual',fm:'mkt',ft:'teto'};
       if(map[id]){ V.edit[map[id]]=t.value; if($('ptoast')) $('ptoast').innerHTML=''; if(id!=='fn'&&id!=='fe') updProd(); }
       return;
     }
@@ -1313,6 +1424,17 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
         var outro=porEan(code,V.edit.id);
         fbox.innerHTML = outro ? '<div class="msg amber">Código '+esc(code)+' lido. Ele já está no produto “'+esc(outro.n)+'”. <button type="button" class="btn plain" data-prod="'+esc(outro.id)+'">Abrir esse produto</button></div>'
                                : '<div class="msg green">Código '+esc(code)+' lido. Salve para guardar.</div>';
+      });
+      return;
+    }
+    if(id==='vcFoto'&&t.files&&t.files[0]){
+      var vbox=$('vcfotomsg'); vbox.innerHTML='<div class="msg info">Lendo o código…</div>';
+      lerCodigo(t.files[0],function(code,mot){
+        t.value='';
+        if(!code){ vbox.innerHTML='<div class="msg amber">'+msgFalha(mot)+'</div>'; return; }
+        var ach=porEan(code,null);
+        if(ach){ V.vc.id=ach.id; V.vc.custo=''; updVc(); var vi2=$('vccusto'); if(vi2) vi2.focus(); return; }
+        vbox.innerHTML='<div class="msg info">O código '+esc(code)+' ainda não está cadastrado.<br><button type="button" class="btn ghost" id="cadEan" data-ean="'+esc(code)+'" style="margin-top:8px">Cadastrar produto com este código</button></div>';
       });
       return;
     }

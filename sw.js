@@ -1,6 +1,6 @@
 // Guarda a calculadora no celular para abrir sem internet.
 // Quando tiver internet, sempre tenta pegar a versão mais nova primeiro.
-var CACHE = 'margem-segura-v1';
+var CACHE = 'margem-segura-v2';
 var ARQUIVOS = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', function (e) {
