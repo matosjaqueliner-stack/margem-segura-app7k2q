@@ -199,7 +199,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     nome: 'Margem Segura',
     empresa: 'Criado por Jaqueline Matos',                 // ex.: 'Sua Empresa Ltda'
     whatsappSuporte: '5511947185525',         // só números com DDI e DDD, ex.: '5511999999999'
-    versao: '2.6.0'
+    versao: '2.6.1'
   };
   var XLSX_URL='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
   var PDFJS_URL='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
@@ -362,16 +362,6 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     return {n:n,red:red,amb:amb,att:red+amb,sc:sc,mm:(n-sc)?sm/(n-sc):0};
   }
   function catAvg(){ var t=0; S.cats.forEach(function(c){ t+=num(c.m); }); return S.cats.length?t/S.cats.length/100:0.35; }
-  function metaCalc(){
-    var st=stats(), auto=st.n?st.mm:catAvg();
-    var mm=num(S.cfg.mmed)>0?num(S.cfg.mmed)/100:auto;
-    var imp=cfgN('imp')/100, tx=cfgN('taxa')/100, q=Math.min(cfgN('perd')/100,0.5);
-    var desp=cfgN('desp'), vend=cfgN('vend'), meta=cfgN('meta');
-    var contrib=mm-imp-tx-q*(1-mm)/(1-q);
-    var ok=contrib>0.01&&desp>0;
-    return {auto:auto,mm:mm,contrib:contrib,ok:ok,desp:desp,vend:vend,meta:meta,pe:ok?desp/contrib:0,alvo:ok?(desp+meta)/contrib:0,hoje:vend*contrib-desp};
-  }
-
   /* ===== navegação ===== */
   function go(tab){ V.tab=tab; V.screen=null; V.edit=null; render(); window.scrollTo(0,0); }
   function openProd(id,preset){
@@ -402,7 +392,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
   }
 
   function vInicio(){
-    var st=stats(), mc=metaCalc(), h='';
+    var st=stats(), h='';
     h+='<div class="stack">';
     h+='<div><div class="eyebrow">'+esc(S.cfg.neg||CONFIG.nome)+'</div><h1>O que vamos fazer hoje?</h1></div>';
     if(S.dica && !st.n) h+='<div class="msg green" style="display:flex;gap:10px;align-items:flex-start"><span style="flex:1"><b>Dica:</b> envie sua tabela de produtos. A calculadora sugere o preço de todos de uma vez.</span><button type="button" class="btn plain" id="dica" style="color:var(--green-text)">Entendi</button></div>';
@@ -432,12 +422,6 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       var att=S.prods.filter(function(p){ var x=calcProd(p).st; return x==='red'||x==='amber'; }).slice(0,5);
       if(att.length) h+='<section class="stack" style="gap:8px"><h2>Precisam de atenção</h2><div class="list">'+att.map(prodRow).join('')+'</div>'+
         (st.att>5?'<button type="button" class="btn plain" id="verAtt">Ver todos os '+st.att+'</button>':'')+'</section>';
-    }
-    if(mc.ok && mc.meta>0){
-      var p=Math.min(mc.vend/mc.alvo,1);
-      h+='<button type="button" class="card" data-tab="negocio" style="text-align:left;font-weight:400;color:var(--ink)"><span style="display:flex;justify-content:space-between;gap:8px;width:100%"><b style="font-size:15px">Meta do mês</b><span class="hint">lucro de '+fmt0(mc.meta)+'</span></span>'+
-        '<span class="progress" style="width:100%"><div style="width:'+(p*100).toFixed(1)+'%"></div></span>'+
-        '<span class="hint">Vendas de '+fmt0(mc.vend)+' de '+fmt0(mc.alvo)+' necessários ('+pct(p)+')</span></button>';
     }
     h+='<footer>'+esc(CONFIG.nome)+' · versão '+CONFIG.versao+(CONFIG.empresa?' · '+esc(CONFIG.empresa):'')+'</footer>';
     h+='</div>';
@@ -1028,23 +1012,21 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
 
   /* ----- meu negócio ----- */
   function vNegocio(){
-    var mc=metaCalc(), h='<div class="stack">';
-    h+='<div><h1>Meu negócio</h1><p class="sub">Meta do mês, números e categorias.</p></div>';
-    h+='<section class="card"><h2>Quanto preciso vender por mês?</h2>'+
-      '<div class="big"><label for="nmeta">Lucro líquido que quero no mês</label><div class="pre"><span>R$</span><input id="nmeta" inputmode="decimal" value="'+esc(S.cfg.meta)+'" placeholder="Ex.: 3000" autocomplete="off"></div></div>'+
-      '<div id="mres"></div></section>';
-    h+='<details class="card" id="dnum"'+(V.openNum?' open':'')+'><summary>Meus números</summary><div class="stack">'+
+    var h='<div class="stack">';
+    h+='<div><h1>Meu negócio</h1><p class="sub">Seus números e as margens de cada categoria.</p></div>';
+    h+='<section class="card"><h2>Meus números</h2>'+
+      '<p class="hint">Entram no preço mínimo e no lucro de cada produto. Use a média dos últimos meses.</p>'+
       '<div class="grid2">'+
         fld('desp','Despesas fixas por mês','R$','')+fld('vend','Vendas por mês','R$','')+
         fld('imp','Imposto (Simples)','','%')+fld('taxa','Cartão e Pix','','%')+
-        fld('perd','Furtos e perdas','','%')+fld('mmed','Margem média','','%')+
+        fld('perd','Furtos e perdas','','%')+
       '</div>'+
-      '<p class="hint">Margem média: se ficar vazio, usamos a média dos seus produtos ('+pct(mc.auto)+').</p>'+
+      '<p class="hint" id="despinfo"></p>'+
       '<div><label for="narred">Arredondar o preço</label><select id="narred">'+
         [['90','Terminar em ,90'],['99','Terminar em ,99'],['05','De 5 em 5 centavos'],['0','Sem arredondar']].map(function(o){ return '<option value="'+o[0]+'"'+(S.cfg.arred===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')+
       '</select></div>'+
       '<div><label for="nneg">Nome do negócio</label><input id="nneg" value="'+esc(S.cfg.neg)+'" autocomplete="off"></div>'+
-      '</div></details>';
+      '</section>';
     h+='<details class="card" id="dcat"'+(V.openCat?' open':'')+'><summary>Categorias e margens ('+S.cats.length+')</summary>'+
       '<p class="hint" style="margin-bottom:10px">Margem de lucro sobre o preço de venda. Renomeie, apague ou crie categorias.</p><div id="cats"></div>'+
       '<button type="button" class="btn ghost" id="addCat">'+ico('plus')+'Nova categoria</button>'+
@@ -1065,27 +1047,9 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
     return '<div><label for="n'+k+'">'+lab+'</label><div class="'+w+'"><span>'+s+'</span><input id="n'+k+'" data-cfg="'+k+'" inputmode="decimal" value="'+esc(S.cfg[k])+'" autocomplete="off"></div></div>';
   }
   function updMeta(){
-    var box=$('mres'); if(!box) return;
-    var mc=metaCalc();
-    if(!(mc.desp>0)){ box.innerHTML='<div class="msg info">Preencha as despesas fixas em “Meus números” para fazer a conta.</div>'; return; }
-    if(!(mc.contrib>0.01)){ box.innerHTML='<div class="msg red">Com margem média de '+pct(mc.mm)+', imposto, taxas e perdas consomem toda a margem. Suba as margens.</div>'; return; }
-    var h='<div style="background:var(--green);color:var(--green-ink);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:4px">'+
-      '<span style="font-size:14px;font-weight:600;opacity:.85">'+(mc.meta>0?'Você precisa vender':'Para não ter prejuízo, venda')+'</span>'+
-      '<span style="font-family:var(--num);font-size:36px;font-weight:700;line-height:1.05">'+fmt0(mc.meta>0?mc.alvo:mc.pe)+'<span style="font-size:17px"> /mês</span></span>'+
-      '<span style="font-size:15px;font-weight:600;opacity:.85">'+fmt0((mc.meta>0?mc.alvo:mc.pe)/30)+' por dia</span></div>';
-    h+='<div class="leg" style="grid-template-columns:1fr auto">'+
-      '<span>Para não ter prejuízo</span><b>'+fmt0(mc.pe)+'/mês</b>'+
-      '<span>De cada R$ 100 vendidos, sobram</span><b>'+fmt(mc.contrib*100)+'</b>'+
-      '<span>Margem média usada</span><b>'+pct(mc.mm)+'</b>';
-    if(mc.vend>0){
-      h+='<span>Lucro estimado hoje</span><b style="color:'+(mc.hoje<0?'var(--red)':'inherit')+'">'+fmt0(mc.hoje)+'/mês</b>';
-      if(mc.meta>0) h+='<span>Falta vender por mês</span><b style="color:var(--amber)">'+(mc.vend>=mc.alvo?'Meta atingida':fmt0(mc.alvo-mc.vend))+'</b>';
-    }
-    h+='</div>';
-    if(mc.vend>0 && mc.meta>0){ var p=Math.min(mc.vend/mc.alvo,1); h+='<div class="progress"><div style="width:'+(p*100).toFixed(1)+'%"></div></div><p class="hint">Vendas atuais: '+pct(p)+' do necessário.</p>'; }
-    if(!(mc.vend>0)) h+='<p class="hint">Preencha as vendas por mês para ver quanto falta.</p>';
-    h+='<p class="hint">Estimativa pela margem média. O resultado real depende de quais produtos vendem mais. Dias: 30 por mês.</p>';
-    box.innerHTML=h;
+    var el=$('despinfo'); if(!el) return;
+    var dp=despPct();
+    el.textContent = dp>0 ? 'Suas despesas fixas pesam '+pct(dp)+' das vendas. Esse percentual já entra no preço mínimo de cada produto.' : 'Preencha despesas fixas e vendas por mês para o preço mínimo considerar aluguel, energia e royalties.';
   }
   function renderCats(){
     var box=$('cats'); if(!box) return;
@@ -1400,7 +1364,6 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:8px}
       return;
     }
     if(t.dataset.cfg){ S.cfg[t.dataset.cfg]=t.value; save(); updMeta(); return; }
-    if(id==='nmeta'){ S.cfg.meta=t.value; save(); updMeta(); return; }
     if(id==='nneg'){ S.cfg.neg=t.value.trim(); save(); return; }
     if(t.dataset.ci!=null){
       var c=S.cats[+t.dataset.ci]; if(!c) return;
